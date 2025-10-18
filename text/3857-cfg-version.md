@@ -239,32 +239,37 @@ to accommodate this predicate.
 
 A new predicate will be added of the form:
 ```
-CheckConfigurationSince -> `version` `(` `since` `=` ( STRING_LITERAL | RAW_STRING_LITERAL ) `)`
+CheckConfigurationVersion ->
+  `version` `(` CheckConfigurationVersionPredicate? `)`
+
+CheckConfigurationVersionPredicate ->
+  `since` `=` ( STRING_LITERAL | RAW_STRING_LITERAL )
 ```
 
-The syntax for the contents of the string literal is a `Version`.
+The syntax for the contents of the string literal is a `Version`. The compiler will error otherwise.
+This unifies with all other values specified with the `values()` predicate.
 
-This will specify that for the given cfg, string literals will be valid if:
-- `Version` syntax
-- from the specified version and up
+This will specify that for the given cfg, string literals will be considered "expected" if:
+- they conform to `Version` syntax, and
+- they conform to the `since` predicate, if one is supplied.
 
-When checking a `version` predicate,
-- the string literal must be a minimum version requirement that specifies a subset of what the `--check-cfg` specifies
+These requirements apply whether the literal is supplied to a `ConfigurationOption` (`=`) predicate or a `ConfigurationVersion` predicate. (Note that in the latter case, supplying a literal that does not conform to `Version` syntax is already an error.)
 
-*note: non-version string literals are already a compiler error*
-
-This composes with all other values specified with the `values()` predicate
+`version()` predicates in cfg warn if their identifier does not have a `version()` predicate in `--check-cfg`.
 
 So given `--check-cfg 'cfg(foo, values(version(since = "1.95")))'`,
 - ✅ `#[cfg(foo = "1.100")]`
-- ⚠️ `#[cfg(foo = "1.100.0")]`: not `Version` syntax
+- ❌ `#[cfg(foo = "1.100.0")]`: not `Version` syntax
 - ✅ `#[cfg(version(foo, since = "1.95"))]`
 - ✅ `#[cfg(version(foo, since = "1.100"))]`
 - ✅ `#[cfg(version(foo, since = "3.0"))]`
 - ✅ `#[cfg(version(foo, since = "1.95"))]`
-- ⚠️ `#[cfg(version(foo, since = "1.90"))]`: matches a superset of `--check-cfg`
-- ⚠️ `#[cfg(version(foo, since = "1"))]`: not `Version` syntax
-- ⚠️ `#[cfg(version(foo, since = "bar"))]`: not `Version` syntax
+- ⚠️ `#[cfg(version(foo, since = "1.90"))]`: requirement comes before the `since` bound of `--check-cfg`
+- ❌ `#[cfg(version(foo, since = "1"))]`: not `Version` syntax
+- ❌ `#[cfg(version(foo, since = "bar"))]`: not `Version` syntax
+
+And given `--check-cfg 'cfg(bar, values("baz"))'`,
+- ⚠️ `#[cfg(version(bar, since = "1.90"))]`: no `version()` predicates appear in `--check-cfg` for `bar`
 
 ## `rust` cfg
 
@@ -424,11 +429,7 @@ Alternatively, we could fail the match in this case but that prevents `--cfg rus
 
 The `--check-cfg` predicate and the value for `rust` ensures users get warnings about
 - Invalid syntax
-- Using this with versions from before its supported, e.g. `#[cfg(version(rust, since = "1.0")]`
-
-`--check-cfg` requires a `Version`, rather than a version requirement,
-in case we want the future possibility of relaxing `Version`
-*and* we want to infer from the fields used in `--check-cfg` to specify the maximum number of fields accepted in comparisons.
+- Using this with versions from before it's supported, e.g. `#[cfg(version(rust, since = "1.0")]`
 
 Like with the cfg's string literal,
 check-cfg's string literal does not support the `+build` metadata field as it has no affect on precedence.
@@ -833,8 +834,6 @@ since("1.95"))`
 # Future possibilities
 [future-possibilities]: #future-possibilities
 
-- In the future the `--check-cfg` `version()` predicate could make the minimum-version field optional,
-  matching all version numbers.
 - Adding `#[cfg(version(before = "1.95"))]` could resolve the unnatural grammar of `#[cfg(not(version(since = "1.95")))]`.
   - Deferring to keep this minimal and to get more real world input on the usefulness of this
   - Another possible name is `#[cfg(version(until = "1.95"))]` which reads well as `#[cfg(not(version(until = "1.95")))]`
@@ -1026,15 +1025,6 @@ Open questions:
   - Ignoring them would work best for the purpose of `--cfg=rust --cfg=rust="1.95"`
 - How does `cfg_value!(foo)` deal with multiple cfg vales?
   - Compiler error
-
-## `check-cfg` support for a version without a minimum
-
-`--check-cfg 'cfg(foo, values(version(since = "1.95")))'` requires setting a minimum version.
-If a user did not need that when setting a `cfg`,
-they would have to do `--check-cfg 'cfg(foo, values(version(since = "0.0.0-0")))'`.
-A user may want a shorthand for this.
-We can support supplying only `version()`.
-A shorthand may be limited to `Version` versions if we use the `version(version)` syntax to specify the supported version syntax, see [`--check-cfg` rationale][#--check-cfg-rationale].
 
 ## An `is_set` predicate
 
